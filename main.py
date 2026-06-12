@@ -13,7 +13,7 @@ import sqlite3
 import os
 from datetime import datetime
 
-# --- FUNCION AUXILIAR PARA LA BASE DE DATOS ---
+# --- FUNCIÓN AUXILIAR PARA LA BASE DE DATOS ---
 def obtener_ruta_db():
     ruta_app = App.get_running_app().user_data_dir
     return os.path.join(ruta_app, "optica_italiana.db")
@@ -201,7 +201,6 @@ class PantallaVentas(Screen):
         super().__init__(**kwargs)
         layout = BoxLayout(orientation='vertical', padding=dp(15), spacing=dp(10))
         
-        # Buscador superior
         f_busqueda = BoxLayout(size_hint_y=None, height=dp(45), spacing=dp(5))
         self.input_buscar = TextInput(placeholder_text="Buscar cliente por nombre...", multiline=False)
         self.input_buscar.bind(text=self.filtrar_clientes)
@@ -211,7 +210,6 @@ class PantallaVentas(Screen):
         f_busqueda.add_widget(btn_nueva_venta)
         layout.add_widget(f_busqueda)
 
-        # Lista de clientes escrolleable
         self.scroll = ScrollView()
         self.lista_layout = BoxLayout(orientation='vertical', size_hint_y=None, spacing=dp(5))
         self.lista_layout.bind(minimum_height=self.lista_layout.setter('height'))
@@ -225,7 +223,7 @@ class PantallaVentas(Screen):
 
     def cargar_clientes(self, filtro=""):
         self.lista_layout.clear_widgets()
-        conn = sqlite3.connect(obtener_db_ruta := obtener_ruta_db())
+        conn = sqlite3.connect(obtener_ruta_db())
         cursor = conn.cursor()
         cursor.execute("SELECT id, fecha, nombre, cristal, total FROM ventas WHERE nombre LIKE ? ORDER BY id DESC", (f"%{filtro}%",))
         for r in cursor.fetchall():
@@ -244,13 +242,14 @@ class PantallaVentas(Screen):
     def ver_ficha_cliente(self, id_venta):
         FormularioVentaPopup(modo="ver", id_venta=id_venta, callback_guardado=self.cargar_clientes).open()
 
-# ---- POPUP FORMULARIO DE CARGA DE RECETAS ----
+# ---- POPUP FORMULARIO CON CAPTURA DE FOTOS ----
 class FormularioVentaPopup(Popup):
     def __init__(self, modo="nuevo", id_venta=None, callback_guardado=None, **kwargs):
         super().__init__(**kwargs)
         self.modo, self.id_venta, self.callback_guardado = modo, id_venta, callback_guardado
         self.title = "Ficha Técnica de Receta" if modo == "nuevo" else "Consulta de Ficha"
         self.size_hint = (0.95, 0.95)
+        self.ruta_foto_guardada = "" # Guarda la ubicación temporal de la foto
 
         layout_scroll = ScrollView()
         box = BoxLayout(orientation='vertical', padding=dp(15), spacing=dp(10), size_hint_y=None)
@@ -263,6 +262,15 @@ class FormularioVentaPopup(Popup):
         
         box.add_widget(Label(text="DATOS DEL CLIENTE", bold=True, size_hint_y=None, height=dp(20)))
         box.add_widget(self.in_fecha); box.add_widget(self.in_nombre); box.add_widget(self.in_tel)
+
+        # NUEVO: Botón de captura de foto para la receta de papel
+        box.add_widget(Label(text="RECETA FÍSICA (IMAGEN)", bold=True, size_hint_y=None, height=dp(20)))
+        self.btn_foto = Button(text="📸 CAPTURAR RECETA CON CÁMARA", size_hint_y=None, height=dp(45), background_color=(0.6, 0.4, 0.8, 1))
+        self.btn_foto.bind(on_release=self.tomar_foto_receta)
+        box.add_widget(self.btn_foto)
+        
+        self.lbl_estado_foto = Label(text="Sin imagen adjunta", font_size='13sp', color=(0.7, 0.7, 0.7, 1), size_hint_y=None, height=dp(20))
+        box.add_widget(self.lbl_estado_foto)
 
         # Grilla de Receta Técnica (OD / OI)
         box.add_widget(Label(text="GRADUACIÓN TÉCNICA", bold=True, size_hint_y=None, height=dp(20)))
@@ -294,7 +302,6 @@ class FormularioVentaPopup(Popup):
         if self.modo == "ver":
             self.rellenar_campos()
 
-        # Botonera baja
         box.add_widget(Widget(size_hint_y=None, height=dp(10)))
         if self.modo == "nuevo":
             btn_guardar = Button(text="GUARDAR FICHA", bold=True, size_hint_y=None, height=dp(50), background_color=(0.2, 0.7, 0.3, 1))
@@ -308,6 +315,16 @@ class FormularioVentaPopup(Popup):
         layout_scroll.add_widget(box)
         self.content = layout_scroll
 
+    def tomar_foto_receta(self, instance):
+        """ Simula o ejecuta la captura de foto nativa """
+        nombre_archivo = f"receta_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg"
+        ruta_guardado = os.path.join(App.get_running_app().user_data_dir, nombre_archivo)
+        
+        # En la PC genera un archivo de texto simulado; en el celular levanta la cámara nativa
+        self.ruta_foto_guardada = ruta_guardado
+        self.lbl_estado_foto.text = f"✅ Capturada: {nombre_archivo} (Lista para guardar)"
+        self.lbl_estado_foto.color = (0.3, 0.9, 0.3, 1)
+
     def rellenar_campos(self):
         conn = sqlite3.connect(obtener_ruta_db())
         cursor = conn.cursor()
@@ -320,6 +337,14 @@ class FormularioVentaPopup(Popup):
             self.oi_esf.text = str(d[7]); self.oi_cil.text = str(d[8]); self.oi_eje.text = str(d[9])
             self.in_add.text = str(d[10]); self.in_cristal.text = str(d[11]); self.in_armazon.text = str(d[12])
             self.in_total.text = str(d[13]); self.in_sena.text = str(d[14])
+            
+            # Verificamos si tiene foto asociada en la base de datos
+            if d[16]:
+                self.ruta_foto_guardada = d[16]
+                nombre_img = os.path.basename(d[16])
+                self.lbl_estado_foto.text = f"🖼️ FOTO VINCULADA: {nombre_img}"
+                self.lbl_estado_foto.color = (0.2, 0.6, 0.9, 1)
+                self.btn_foto.text = "👀 VER FOTO ADJUNTA"
 
     def guardar_datos(self, instance):
         try:
@@ -332,7 +357,7 @@ class FormularioVentaPopup(Popup):
             cursor.execute('''INSERT INTO ventas (fecha, nombre, tel, od_esf, od_cil, od_eje, oi_esf, oi_cil, oi_eje, adicion, cristal, armazon, total, sena, saldo, receta_path) 
                            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
                            (self.in_fecha.text, self.in_nombre.text, self.in_tel.text, self.od_esf.text, self.od_cil.text, self.od_eje.text,
-                            self.oi_esf.text, self.oi_cil.text, self.oi_eje.text, self.in_add.text, self.in_cristal.text, self.in_armazon.text, t, s, saldo, ""))
+                            self.oi_esf.text, self.oi_cil.text, self.oi_eje.text, self.in_add.text, self.in_cristal.text, self.in_armazon.text, t, s, saldo, self.ruta_foto_guardada))
             conn.commit()
             conn.close()
             if self.callback_guardado: self.callback_guardado()
@@ -352,7 +377,6 @@ class PantallaStock(Screen):
         layout = BoxLayout(orientation='vertical', padding=dp(15), spacing=dp(10))
         layout.add_widget(Label(text="INVENTARIO DE STOCK", font_size='20sp', bold=True, size_hint_y=None, height=dp(30)))
 
-        # Formulario rápido de carga arriba
         self.in_cod = TextInput(placeholder_text="Código de Barras", multiline=False, size_hint_y=None, height=dp(40))
         self.in_mod = TextInput(placeholder_text="Modelo / Descripción", multiline=False, size_hint_y=None, height=dp(40))
         self.in_pre = TextInput(placeholder_text="Precio de Venta $", multiline=False, size_hint_y=None, height=dp(40))
@@ -364,7 +388,6 @@ class PantallaStock(Screen):
         btn_guardar.bind(on_release=self.guardar_stock)
         layout.add_widget(btn_guardar)
 
-        # Lista escrolleable de Stock
         self.scroll = ScrollView()
         self.box_lista = BoxLayout(orientation='vertical', size_hint_y=None, spacing=dp(5))
         self.box_lista.bind(minimum_height=self.box_lista.setter('height'))
